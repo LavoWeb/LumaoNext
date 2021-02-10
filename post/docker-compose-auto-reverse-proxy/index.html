@@ -1,0 +1,81 @@
+<!doctype html><html lang=fr-fr><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Reverse proxy automatique pour Docker</title><meta name=description content><meta name=robots content="INDEX,FOLLOW"><link rel=apple-touch-icon sizes=180x180 href=https://lumao.eu/apple-touch-icon.png><link rel=icon type=image/png sizes=32x32 href=https://lumao.eu/favicon-32x32.png><link rel=icon type=image/png sizes=16x16 href=https://lumao.eu/favicon-16x16.png><link rel=manifest href=https://lumao.eu/site.webmanifest><link rel=mask-icon href=https://lumao.eu/safari-pinned-tab.svg color=#5bbad5><meta name=msapplication-TileColor content="#da532c"><meta name=theme-color content="#da532c"><link rel=alternate hreflang=fr-fr href=https://lumao.eu/post/docker-compose-auto-reverse-proxy/><link rel=alternate hreflang=x-default href=https://lumao.eu/post/docker-compose-auto-reverse-proxy/><link rel=alternate hreflang=fr-ch href=https://lumao.ch/post/docker-compose-auto-reverse-proxy/><link rel=alternate hreflang=fr-be href=https://be.lumao.eu/post/docker-compose-auto-reverse-proxy/><link rel=alternate hreflang=fr-lu href=https://lu.lumao.eu/post/docker-compose-auto-reverse-proxy/><meta name=generator content="Hugo 0.74.2"><script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-PXRXBBS');</script></head><body><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PXRXBBS" height=0 width=0 style=display:none;visibility:hidden></iframe></noscript><header class=header><div class=container><div class=row><div class=col-sm-3><a class="animsition-link site-logo" href=https://lumao.eu/><img src=https://lumao.eu/agence_magento.svg alt="Lumao - Développement Magento"></a></div><div class=col-sm-9><nav id=site-nav class=nav-toggle><ul class=menu><li><a href=https://lumao.eu/><i class="fa fa-code" aria-hidden=true></i>Développeur Magento</a></li><li><a href=https://lumao.eu/ecommerce/cms/magento/><i class="fa fa-codepen" aria-hidden=true></i>Magento</a></li><li><a href=# data-goto=/reference/><i class="fa fa-connectdevelop" aria-hidden=true></i>Réalisations</a></li><li><a href=# data-goto=/post/contact/><i class="fa fa-comments" aria-hidden=true></i>Contact</a></li></ul></nav></div></div></div></header><div class="section section-content" id=section-content><div class=title-block><h1 class=title-big>Reverse proxy automatique pour Docker</h1></div><div class=container><div class=row><div class="col-md-12 about-info"><p>Dans cet article, on va voir comment faire un reverse proxy qui détecte l&rsquo;ajout d&rsquo;un site,
+génère un certificat SSL SAN pour les noms associés sans aucune action de notre part :)</p><h2 id=docker-compose>Docker-compose</h2><p>Pour avoir un exemple plus parlant, on partira sur un site WordPress, créé avec <em>docker-compose</em>.</p><h2 id=træfɪk>Træfɪk</h2><p>L&rsquo;outil magique qui nous servira de reverse proxy.</p><h2 id=structure>Structure</h2><pre><code>.
+|-- acme
+|   `-- acme.json
+|-- compose
+|   `-- soins-naturels.net
+|       |-- data
+|       |   |-- mysql
+|       |   `-- wp-content
+|       `-- docker-compose.yml
+`-- docker-compose.yml
+</code></pre><h3 id=acme>Acme</h3><p>C&rsquo;est le doux nom pour <a href=https://letsencrypt.org/>Let’s Encrypt</a>, vous aurez la liste de vos domaines ainsi que les clés associées dans le fichier json.</p><h3 id=compose>Compose</h3><p>Contient tous les sites, le <em>docker-compose</em> ainsi que les données du site : la base de donnée ainsi que les fichiers.</p><h3 id=docker-composeyml>docker-compose.yml</h3><p>La configuration du reverse proxy.</p><h2 id=configuration>Configuration</h2><h3 id=network>Network</h3><p>On va créer un network pour avoir chaque configuration dans son propre dossier et ne pas tout mélanger.</p><pre><code>docker network create web
+</code></pre><h3 id=træfɪk-1>Træfɪk</h3><p><em>./docker-compose.yml</em></p><pre><code>version: &quot;2&quot;
+services:
+  traefik:
+    image: traefik:v1.1.2-alpine
+    ports:
+      - &quot;80:80&quot;
+      - &quot;443:443&quot;
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /dev/null:/traefik.toml
+      - ./ssl:/etc/traefik/ssl
+      - ./acme:/etc/traefik/acme
+    command: --web -c /dev/null  --docker --logLevel=INFO --docker.watch --acme --acme.OnHostRule=true --acme.storage=/etc/traefik/acme/acme.json --acme.email=aurelien@lavoweb.net --acme.entryPoint=https --entryPoints='Name:http Address::80' --entryPoints='Name:https Address::443 TLS' --defaultentrypoints=http,https --acme.domains=&quot;unstickers.com&quot;
+    restart: always
+    environment:
+      - &quot;affinity:container!=traefik*&quot;
+    networks:
+      - web
+networks:
+  web:
+    external:
+      name: web
+</code></pre><p>Træfɪk est mappé avec les ports <em>80/443</em> de l&rsquo;host.</p><p>Il est lancé en mode <em>docker</em> avec rechargement automatique de la configuration à chaque changement d&rsquo;état des containeurs.</p><p>On active la génération des certificats SSLs et la génération se fera directement depuis la configuration des clients.
+L&rsquo;email associé pour les relances est le miens.</p><h3 id=wordpress>WordPress</h3><p><em>./compose/soins-naturels.net/docker-compose.yml</em></p><pre><code>version: &quot;2&quot;
+services:
+  soinsnaturels:
+    image: wordpress
+    expose: 
+     - 80
+     - 443
+    volumes:
+     - ./data/wp-content/:/var/www/html/wp-content
+    labels:
+     - &quot;traefik.port=80&quot;
+     - &quot;traefik.backend=soinsnaturels&quot;
+     - &quot;traefik.frontend.rule=Host:soins-naturels.net,www.soins-naturels.net,dev.soins-naturels.net&quot;
+     - &quot;traefik.docker.network=web&quot;
+    environment:
+     - WORDPRESS_DB_PASSWORD=*******
+     - WORDPRESS_DB_HOST=*******
+    networks:
+     - web
+     - internal
+    links:
+     - mysql
+    depends_on:
+     - mysql
+    restart: always
+  mysql:
+    image: mysql:5.7
+    volumes:
+     - ./data/mysql/:/var/lib/mysql
+    environment:
+     - MYSQL_ROOT_PASSWORD=*******
+     - MYSQL_DATABASE=*******
+    networks:
+     - internal
+    restart: always
+networks:
+  web:
+    external:
+      name: web
+  internal:
+    driver: bridge
+</code></pre><p>On expose les ports 80 et 443 du container.</p><p><em>traefik.port=80</em>
+Træfɪk route le trafic sur le port <em>80</em>.</p><p><em>traefik.backend=soinsnaturels</em>
+Træfɪk utilise le backend <em>soinsnaturels</em>, on prendra soin d&rsquo;avoir un backend unique pour chaque site.</p><p><em>traefik.frontend.rule=Host:soins-naturels.net,www.soins-naturels.net,dev.soins-naturels.net</em>
+On déclare les noms de domaines qu&rsquo;on utilisera. Un certificat SSL SAN sera généré contenant tous ces domaines.</p><p><em>traefik.docker.network=web</em>
+Træfɪk utilise le network <em>web</em> pour communiquer avec ce container.</p><h2 id=merci>Merci</h2><p>Des articles qui m&rsquo;ont bien aidé à mettre en place cette configuration :</p><ul><li><a href=https://techan.fr/traefik-et-docker-le-couple-ultime.html>https://techan.fr/traefik-et-docker-le-couple-ultime.html</a></li><li><a href=https://blog.alterway.fr/traefik-un-reverse-proxy-pour-vos-conteneurs.html>https://blog.alterway.fr/traefik-un-reverse-proxy-pour-vos-conteneurs.html</a></li><li><a href=https://github.com/mikeifomin>https://github.com/mikeifomin</a></li></ul></div></div></div></div><footer class=footer-bottom><p class=copyright>&copy; 2021 Lumao SASU <img src=https://lumao.eu/favicon-32x32.png alt="agence web Lumao" class=copyright__logo> - 835 305 657 R.C.S. Annecy - Développé avec <i class="fa fa-heart-o"></i>par LavoWeb - Annecy, France</p><p class=copyright>Nous nous déplaçons sur Annecy, Bordeaux, Chambéry, Grenoble, Lyon, Paris et dans toute la Haute-Savoie</p><p class=copyright>Le nom "Magento", "Magento 2" et le logo sont des marques commerciales de Magento, Inc.</p></footer><link rel=stylesheet href=https://lumao.eu/dist/all.css><script src=https://lumao.eu/dist/all.js></script><script>jQuery(document).ready(function(){jQuery('img').each(function(){jQuery(this).addClass('img-responsive');});jQuery('h2').each(function(){jQuery(this).addClass('title-middle');});});window.addEventListener('DOMContentLoaded',function(){var myLazyLoad=new LazyLoad({elements_selector:".lazy"});var myLazyLoadWebp=new LazyLoad({elements_selector:".lazy-webp",to_webp:true});},false);</script></body></html>

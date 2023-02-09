@@ -1,0 +1,12 @@
+User-agent: *
+Disallow: /tags/
+Disallow: /post/cgs/
+Disallow: /post/charte-vp/
+Disallow: /post/merci/
+Disallow: /post/mentions-legales/
+Disallow: /post/page/
+Disallow: /freference/
+Disallow: /lumao-iban.pdf
+Disallow: /*/index.xml
+Disallow: /*/index.html
+Sitemap: /sitemap.xml
